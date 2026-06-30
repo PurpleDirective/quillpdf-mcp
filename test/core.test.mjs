@@ -9,7 +9,7 @@
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
+import { PDFDocument, PDFName, PDFNumber, PDFRawStream, StandardFonts, rgb, degrees } from "pdf-lib";
 
 import {
   merge,
@@ -203,4 +203,37 @@ test("cleanMetadata: clears title/author/subject/keywords/creator", async () => 
 test("cleanMetadata: output is still a valid, loadable PDF", async () => {
   const out = await cleanMetadata(await makePdf({ pages: 2 }));
   assert.equal((await PDFDocument.load(out)).getPageCount(), 2);
+});
+
+// ── XMP metadata scrub (regression for the review-found leak) ─────────────────
+// pdf-lib does not itself emit XMP, so we hand-attach a /Metadata stream exactly
+// as Acrobat/Word/InDesign/LibreOffice do, then prove cleanMetadata removes it.
+async function makeXmpPdf(secret) {
+  const doc = await PDFDocument.create();
+  doc.addPage([200, 200]);
+  const xmp =
+    '<?xpacket begin="" id="W5M0MpCehiHzreSzNTczkc9d"?>' +
+    '<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">' +
+    '<rdf:Description xmlns:dc="http://purl.org/dc/elements/1.1/">' +
+    `<dc:title><rdf:Alt><rdf:li xml:lang="x-default">${secret}</rdf:li></rdf:Alt></dc:title>` +
+    `<dc:creator><rdf:Seq><rdf:li>${secret}-AUTHOR</rdf:li></rdf:Seq></dc:creator>` +
+    '</rdf:Description></rdf:RDF></x:xmpmeta><?xpacket end="w"?>';
+  const xmpBytes = new TextEncoder().encode(xmp);
+  const dict = doc.context.obj({
+    Type: PDFName.of("Metadata"),
+    Subtype: PDFName.of("XML"),
+    Length: PDFNumber.of(xmpBytes.length),
+  });
+  const ref = doc.context.register(PDFRawStream.of(dict, xmpBytes));
+  doc.catalog.set(PDFName.of("Metadata"), ref);
+  return doc.save();
+}
+
+test("cleanMetadata: scrubs the catalog XMP stream, not just the info dict", async () => {
+  const SECRET = "SECRET-XMP-9f3a2b";
+  const src = await makeXmpPdf(SECRET);
+  assert.ok(Buffer.from(src).includes(SECRET), "fixture must contain the XMP secret before cleaning");
+  const out = await cleanMetadata(src);
+  assert.ok(!Buffer.from(out).includes(SECRET), "cleaned output must NOT contain the XMP secret");
+  assert.equal((await PDFDocument.load(out)).getPageCount(), 1, "cleaned output stays a valid 1-page PDF");
 });

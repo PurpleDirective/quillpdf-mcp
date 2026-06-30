@@ -22,7 +22,7 @@
  * are intentionally dropped — the user's machine is the real limit.
  */
 
-import { PDFDocument, rgb, StandardFonts, degrees } from "pdf-lib";
+import { PDFDocument, PDFDict, PDFName, PDFRef, rgb, StandardFonts, degrees } from "pdf-lib";
 
 /**
  * Load a PDF without silently stripping encryption. If the file is password-
@@ -256,22 +256,46 @@ export async function bates(bytes: Uint8Array, options: BatesOptions = {}): Prom
 
 // ── Clean metadata ──────────────────────────────────────────────────────────
 /**
- * Strip document metadata (title, author, subject, keywords, creator) and
- * re-serialize.
+ * Strip document metadata and re-serialize. This clears, in the document
+ * information dictionary: title, author, subject, keywords, creator, and the
+ * CreationDate / ModDate. It ALSO deletes the document-level XMP metadata
+ * stream (the catalog's /Metadata entry) — modern producers (Acrobat, Word,
+ * InDesign, LibreOffice) duplicate the authoritative title/author into XMP, so
+ * clearing only the info dictionary would leave that copy behind in plaintext.
  *
  * Caveat: pdf-lib unconditionally rewrites the /Producer field with its own
  * signature on save(), so /Producer is replaced (not emptied) regardless of
- * what we set — a known pdf-lib behavior. Every other field listed above is
- * cleared. This does NOT scrub annotations, embedded file attachments, or text
- * content; it targets the document information dictionary.
+ * what we set — a known pdf-lib behavior. This does NOT scrub page-level
+ * annotations, embedded file attachments, or the text/image content of pages.
  */
 export async function cleanMetadata(bytes: Uint8Array): Promise<Uint8Array> {
   const src = await loadPdfSafe(bytes);
+
+  // 1. Document information dictionary fields.
   src.setTitle("");
   src.setAuthor("");
   src.setSubject("");
   src.setKeywords([]);
   src.setProducer("");
   src.setCreator("");
+
+  // 2. Remove CreationDate / ModDate. pdf-lib has no delete-date API, so reach
+  //    into the info dictionary directly.
+  const infoDict = src.context.lookupMaybe(src.context.trailerInfo.Info, PDFDict);
+  if (infoDict) {
+    infoDict.delete(PDFName.of("CreationDate"));
+    infoDict.delete(PDFName.of("ModDate"));
+  }
+
+  // 3. Delete the catalog-level XMP metadata stream. Drop BOTH the /Metadata
+  //    reference and the underlying stream object, so the old XMP bytes do not
+  //    survive in the saved file (deleting only the reference would leave the
+  //    now-orphaned stream serialized in the output).
+  const mdRef = src.catalog.get(PDFName.of("Metadata"));
+  src.catalog.delete(PDFName.of("Metadata"));
+  if (mdRef instanceof PDFRef) {
+    src.context.delete(mdRef);
+  }
+
   return src.save();
 }

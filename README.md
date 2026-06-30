@@ -2,7 +2,7 @@
 
 Local-first PDF tools — **merge, split, rotate, watermark, Bates-number, clean metadata, page-count** — exposed as both an **MCP server** (for AI agents) and a **command-line tool**.
 
-> **Your files never leave your machine.** Every operation reads and writes PDFs locally, in your own environment. There is no upload, no server, no network call — by design. The engine has no code path that could send a document anywhere.
+> **Your files never leave your machine.** Every operation reads and writes PDFs locally, in your own environment. The server uses only stdio transport and local filesystem I/O — it never opens a network connection or transmits your documents.
 
 Built by [Purple Directive](https://quillpdf.com), the same privacy-first engine behind [QuillPDF](https://quillpdf.com). MIT licensed.
 
@@ -17,8 +17,8 @@ Most "PDF API" tools make you upload your documents to someone else's server. Fo
 Run on demand with `npx` (no install):
 
 ```bash
-npx quillpdf-mcp --help        # starts the MCP server (stdio)
 npx -p quillpdf-mcp quillpdf --help   # the CLI
+npx quillpdf-mcp --help               # MCP server: prints setup help (your MCP client launches it over stdio)
 ```
 
 Or install globally for the `quillpdf` and `quillpdf-mcp` commands:
@@ -70,7 +70,7 @@ A ready-to-copy config lives in [`examples/mcp-config.json`](examples/mcp-config
 | `pdf_rotate` | Rotate pages by a multiple of 90° (all pages or a chosen subset) |
 | `pdf_watermark` | Stamp text on every page (size / opacity / color / position) |
 | `pdf_bates` | Sequential Bates numbering (prefix, start, zero-pad, corner) |
-| `pdf_clean_metadata` | Strip title / author / subject / keywords / creator |
+| `pdf_clean_metadata` | Strip info-dict fields + dates, and delete the XMP metadata stream |
 | `pdf_page_count` | Count pages |
 
 ---
@@ -110,9 +110,9 @@ Every command has `--help`.
 
 ## Privacy & security notes
 
-- **Local only.** All processing happens in-process via [`pdf-lib`](https://github.com/Hopding/pdf-lib). No network access is used or required.
+- **Local only.** All PDF processing happens in-process via [`pdf-lib`](https://github.com/Hopding/pdf-lib). The server communicates over stdio and never opens a network connection. (The MCP SDK bundles optional HTTP/SSE transports in `node_modules`, but this server only ever uses stdio, so none of that code runs.)
 - **Password-protected PDFs are refused, not silently unlocked.** If a file is encrypted, the tool stops with a clear message rather than stripping the password for you.
-- **`clean-metadata` caveat.** It clears the title, author, subject, keywords, and creator fields. Note that `pdf-lib` rewrites the `/Producer` field with its own signature on save, so that one field is *replaced* rather than emptied. This operation targets the document information dictionary — it does not scrub annotations, embedded attachments, or the text/image content of pages.
+- **`clean-metadata` scope.** It clears the title, author, subject, keywords, and creator fields plus the CreationDate/ModDate in the document information dictionary, **and** deletes the document-level XMP metadata stream — the copy Acrobat, Word, InDesign, and LibreOffice write, which is often the authoritative one. Note that `pdf-lib` rewrites the `/Producer` field with its own signature on save, so that one field is *replaced* rather than emptied. It does not scrub page-level annotations, embedded file attachments, or the text/image content of pages.
 
 ## Not here yet (roadmap)
 

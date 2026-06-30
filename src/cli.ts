@@ -171,7 +171,7 @@ program
 
 program
   .command("clean-metadata")
-  .description("Strip document metadata (title, author, subject, keywords, creator)")
+  .description("Strip document metadata: info-dictionary fields, dates, and the XMP stream")
   .argument("<file>", "input PDF")
   .requiredOption("-o, --output <file>", "output PDF path")
   .action(async (file: string, opts: { output: string }) => {

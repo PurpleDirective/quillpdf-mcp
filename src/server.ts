@@ -199,8 +199,10 @@ server.registerTool(
   {
     title: "Clean PDF metadata",
     description:
-      "Strip document metadata (title, author, subject, keywords, creator). Note: pdf-lib rewrites /Producer " +
-      "with its own signature on save, so that one field is replaced rather than emptied." +
+      "Strip document metadata: clears title, author, subject, keywords, creator and the CreationDate/ModDate " +
+      "in the info dictionary, AND deletes the document-level XMP metadata stream (the copy Acrobat/Word/InDesign " +
+      "write). Note: pdf-lib rewrites /Producer with its own signature on save, so that one field is replaced " +
+      "rather than emptied." +
       LOCAL,
     inputSchema: {
       input: z.string().describe("Path to the input PDF"),
@@ -241,7 +243,31 @@ server.registerTool(
   },
 );
 
+const HELP_TEXT = `quillpdf-mcp v${VERSION} — local-first PDF tools over the Model Context Protocol.
+
+This is an MCP server: it speaks JSON-RPC over stdio and is meant to be launched
+by an MCP client (Claude Desktop, Claude Code, …), not run directly in a shell.
+Add it to your client config:
+
+  { "mcpServers": { "quillpdf": { "command": "npx", "args": ["-y", "quillpdf-mcp"] } } }
+
+Tools: pdf_merge, pdf_split, pdf_rotate, pdf_watermark, pdf_bates,
+       pdf_clean_metadata, pdf_page_count
+
+For the command-line tool instead, run:  quillpdf --help
+Docs: https://quillpdf.com
+`;
+
 async function main(): Promise<void> {
+  const argv = process.argv.slice(2);
+  if (argv.includes("--help") || argv.includes("-h")) {
+    process.stdout.write(HELP_TEXT);
+    return;
+  }
+  if (argv.includes("--version") || argv.includes("-v")) {
+    process.stdout.write(`${VERSION}\n`);
+    return;
+  }
   const transport = new StdioServerTransport();
   await server.connect(transport);
   // Connected. Log to stderr only — stdout is the protocol channel.
