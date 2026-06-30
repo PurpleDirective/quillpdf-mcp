@@ -1,0 +1,11 @@
+# An explicit .npmignore so npm does NOT fall back to .gitignore (which ignores
+# dist/ — but we ship the compiled dist/). The package.json "files" allowlist is
+# authoritative; this just keeps dev-only files out of the published tarball.
+src/
+test/
+.github/
+tsconfig.json
+*.tsbuildinfo
+.mcp-smoke.mjs
+.gitignore
+.npmignore

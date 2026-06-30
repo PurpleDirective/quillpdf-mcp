@@ -1,0 +1,61 @@
+{
+  "name": "quillpdf-mcp",
+  "version": "0.1.0",
+  "description": "Local-first PDF tools — merge, split, rotate, watermark, Bates-number, clean metadata, page-count — as an MCP server and CLI. Your files never leave your machine.",
+  "license": "MIT",
+  "author": "Purple Directive",
+  "homepage": "https://quillpdf.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PurpleDirective/quillpdf-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PurpleDirective/quillpdf-mcp/issues"
+  },
+  "type": "module",
+  "bin": {
+    "quillpdf": "dist/cli.js",
+    "quillpdf-mcp": "dist/server.js"
+  },
+  "files": [
+    "dist",
+    "examples",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "pretest": "npm run build",
+    "test": "node --test test/*.test.mjs",
+    "start": "node dist/server.js",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "keywords": [
+    "pdf",
+    "mcp",
+    "model-context-protocol",
+    "cli",
+    "merge",
+    "split",
+    "rotate",
+    "watermark",
+    "bates",
+    "metadata",
+    "privacy",
+    "local",
+    "pdf-lib"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "commander": "^15.0.0",
+    "pdf-lib": "^1.17.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.1",
+    "typescript": "^6.0.3"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "comment": "Add this to your MCP client config (e.g. Claude Desktop's claude_desktop_config.json, or via `claude mcp add`). The server runs locally over stdio; your PDFs never leave your machine.",
+  "mcpServers": {
+    "quillpdf": {
+      "command": "npx",
+      "args": ["-y", "quillpdf-mcp"]
+    }
+  }
+}
