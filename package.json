@@ -1,7 +1,7 @@
 {
   "name": "quillpdf-mcp",
-  "version": "0.1.0",
-  "description": "Local-first PDF tools — merge, split, rotate, watermark, Bates-number, clean metadata, page-count — as an MCP server and CLI. Your files never leave your machine.",
+  "version": "0.1.1",
+  "description": "Local-first PDF tools \u2014 merge, split, rotate, watermark, Bates-number, clean metadata, page-count \u2014 as an MCP server and CLI. Your files never leave your machine.",
   "license": "MIT",
   "author": "Purple Directive",
   "homepage": "https://quillpdf.com",
@@ -57,5 +57,6 @@
   "devDependencies": {
     "@types/node": "^26.0.1",
     "typescript": "^6.0.3"
-  }
+  },
+  "mcpName": "io.github.PurpleDirective/quillpdf-mcp"
 }

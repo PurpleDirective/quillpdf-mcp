@@ -1,0 +1,20 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.PurpleDirective/quillpdf-mcp",
+  "description": "Local-first PDF tools \u2014 merge, split, rotate, watermark, Bates-number, clean metadata, page-count \u2014 as an MCP server and CLI. Your files never leave your machine.",
+  "repository": {
+    "url": "https://github.com/PurpleDirective/quillpdf-mcp",
+    "source": "github"
+  },
+  "version": "0.1.1",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "quillpdf-mcp",
+      "version": "0.1.1",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
+}
