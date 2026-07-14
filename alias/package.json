@@ -1,0 +1,25 @@
+{
+  "name": "quillpdf",
+  "version": "0.1.0",
+  "description": "QuillPDF — local-first PDF tools (quillpdf.com). Official name-claim package: re-exports the quillpdf-mcp CLI and MCP server. Your files never leave your machine.",
+  "license": "MIT",
+  "author": "Purple Directive",
+  "homepage": "https://quillpdf.com",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/PurpleDirective/quillpdf-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/PurpleDirective/quillpdf-mcp/issues"
+  },
+  "type": "module",
+  "bin": {
+    "quillpdf": "cli.js",
+    "quillpdf-mcp": "server.js"
+  },
+  "files": ["cli.js", "server.js", "README.md"],
+  "keywords": ["pdf", "mcp", "local-first", "privacy", "merge", "split", "bates", "cli"],
+  "dependencies": {
+    "quillpdf-mcp": "^0.1.0"
+  }
+}
