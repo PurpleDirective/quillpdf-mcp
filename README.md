@@ -106,6 +106,10 @@ quillpdf page-count in.pdf
 
 Every command has `--help`.
 
+**Existing files are never silently replaced.** If the `-o` path already
+exists, the command stops with an error instead of clobbering it — add
+`--force` (or `force: true` on the MCP tools) to replace it deliberately.
+
 ---
 
 ## Privacy & security notes

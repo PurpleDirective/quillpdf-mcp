@@ -48,13 +48,14 @@ server.registerTool(
     inputSchema: {
       inputs: z.array(z.string()).min(2).describe("Paths to the input PDFs, in merge order (2 or more)"),
       output: z.string().describe("Path to write the merged PDF"),
+      force: z.boolean().optional().describe("Replace the output file if it already exists (default: refuse, so existing files are never silently clobbered)"),
     },
     annotations: { title: "Merge PDFs", readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   },
-  async ({ inputs, output }) => {
+  async ({ inputs, output, force }) => {
     try {
       const bufs = await Promise.all(inputs.map(readPdf));
-      await writePdf(output, await ops.merge(bufs));
+      await writePdf(output, await ops.merge(bufs), { force });
       return ok(`Merged ${inputs.length} PDFs → ${output}`);
     } catch (e) {
       return fail(e);
@@ -75,27 +76,28 @@ server.registerTool(
       output: z.string().describe("Output path. In range mode with >1 group, files get -1, -2, … suffixes."),
       ranges: z.string().optional().describe('1-based ranges, one output per comma group, e.g. "1-3,5,7-9"'),
       pages: z.string().optional().describe('1-based pages for a single combined output, e.g. "1,3,5"'),
+      force: z.boolean().optional().describe("Replace the output file if it already exists (default: refuse, so existing files are never silently clobbered)"),
     },
     annotations: { title: "Split / extract PDF pages", readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   },
-  async ({ input, output, ranges, pages }) => {
+  async ({ input, output, ranges, pages, force }) => {
     try {
       if (ranges && pages) throw new Error("Provide either `ranges` or `pages`, not both.");
       if (!ranges && !pages) throw new Error("Provide either `ranges` or `pages`.");
       const bytes = await readPdf(input);
       if (pages) {
-        await writePdf(output, await ops.extractPages(bytes, pages));
+        await writePdf(output, await ops.extractPages(bytes, pages), { force });
         return ok(`Extracted pages ${pages} → ${output}`, { outputs: [output] });
       }
       const outs = await ops.splitByRanges(bytes, ranges!);
       if (outs.length === 1) {
-        await writePdf(output, outs[0]);
+        await writePdf(output, outs[0], { force });
         return ok(`Wrote 1 file → ${output}`, { outputs: [output] });
       }
       const written: string[] = [];
       for (let i = 0; i < outs.length; i++) {
         const p = suffixPath(output, i + 1);
-        await writePdf(p, outs[i]);
+        await writePdf(p, outs[i], { force });
         written.push(p);
       }
       return ok(`Wrote ${written.length} files:\n${written.map((p) => `  ${p}`).join("\n")}`, { outputs: written });
@@ -115,13 +117,14 @@ server.registerTool(
       output: z.string().describe("Path to write the rotated PDF"),
       angle: z.number().int().describe("Rotation in degrees; must be a multiple of 90 (e.g. 90, 180, -90)"),
       pages: z.array(z.number().int().positive()).optional().describe("1-based pages to rotate (default: all)"),
+      force: z.boolean().optional().describe("Replace the output file if it already exists (default: refuse, so existing files are never silently clobbered)"),
     },
     annotations: { title: "Rotate PDF pages", readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   },
-  async ({ input, output, angle, pages }) => {
+  async ({ input, output, angle, pages, force }) => {
     try {
       const bytes = await readPdf(input);
-      await writePdf(output, await ops.rotate(bytes, angle, pages));
+      await writePdf(output, await ops.rotate(bytes, angle, pages), { force });
       return ok(`Rotated ${pages?.length ? `pages ${pages.join(",")}` : "all pages"} by ${angle}° → ${output}`);
     } catch (e) {
       return fail(e);
@@ -145,10 +148,11 @@ server.registerTool(
         .enum(["center", "top-left", "top-right", "bottom-left", "bottom-right"])
         .optional()
         .describe("Placement (default center)"),
+      force: z.boolean().optional().describe("Replace the output file if it already exists (default: refuse, so existing files are never silently clobbered)"),
     },
     annotations: { title: "Watermark a PDF", readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   },
-  async ({ input, output, text, fontSize, opacity, color, position }) => {
+  async ({ input, output, text, fontSize, opacity, color, position, force }) => {
     try {
       const bytes = await readPdf(input);
       const out = await ops.watermark(bytes, text, {
@@ -157,7 +161,7 @@ server.registerTool(
         color: color ? hexToRgb(color) : undefined,
         position,
       });
-      await writePdf(output, out);
+      await writePdf(output, out, { force });
       return ok(`Watermarked → ${output}`);
     } catch (e) {
       return fail(e);
@@ -179,14 +183,15 @@ server.registerTool(
       position: z.enum(["bottom-right", "bottom-left", "top-right", "top-left"]).optional().describe("Corner (default bottom-right)"),
       fontSize: z.number().positive().optional().describe("Font size in points (default 10)"),
       color: z.string().optional().describe("Color as #RRGGBB (default #000000)"),
+      force: z.boolean().optional().describe("Replace the output file if it already exists (default: refuse, so existing files are never silently clobbered)"),
     },
     annotations: { title: "Bates-number a PDF", readOnlyHint: false, destructiveHint: false, idempotentHint: false },
   },
-  async ({ input, output, prefix, startNumber, padWidth, position, fontSize, color }) => {
+  async ({ input, output, prefix, startNumber, padWidth, position, fontSize, color, force }) => {
     try {
       const bytes = await readPdf(input);
       const out = await ops.bates(bytes, { prefix, startNumber, padWidth, position, fontSize, color });
-      await writePdf(output, out);
+      await writePdf(output, out, { force });
       return ok(`Bates-numbered → ${output}`);
     } catch (e) {
       return fail(e);
@@ -207,13 +212,14 @@ server.registerTool(
     inputSchema: {
       input: z.string().describe("Path to the input PDF"),
       output: z.string().describe("Path to write the cleaned PDF"),
+      force: z.boolean().optional().describe("Replace the output file if it already exists (default: refuse, so existing files are never silently clobbered)"),
     },
     annotations: { title: "Clean PDF metadata", readOnlyHint: false, destructiveHint: false, idempotentHint: true },
   },
-  async ({ input, output }) => {
+  async ({ input, output, force }) => {
     try {
       const bytes = await readPdf(input);
-      await writePdf(output, await ops.cleanMetadata(bytes));
+      await writePdf(output, await ops.cleanMetadata(bytes), { force });
       return ok(`Cleaned metadata → ${output}`);
     } catch (e) {
       return fail(e);

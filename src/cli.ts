@@ -62,9 +62,10 @@ program
   .description("Merge two or more PDFs into one")
   .argument("<files...>", "input PDF files, in order (2 or more)")
   .requiredOption("-o, --output <file>", "output PDF path")
-  .action(async (files: string[], opts: { output: string }) => {
+  .option("-f, --force", "replace the output file if it already exists")
+  .action(async (files: string[], opts: { output: string; force?: boolean }) => {
     const inputs = await Promise.all(files.map(readPdf));
-    await writePdf(opts.output, await ops.merge(inputs));
+    await writePdf(opts.output, await ops.merge(inputs), { force: opts.force });
     console.log(`Merged ${files.length} files → ${opts.output}`);
   });
 
@@ -75,25 +76,26 @@ program
   .option("-r, --ranges <spec>", 'comma-separated 1-based ranges, e.g. "1-3,5,7-9" — one output per group')
   .option("-p, --pages <spec>", 'comma-separated 1-based pages, e.g. "1,3,5" — single output with those pages')
   .requiredOption("-o, --output <file>", "output PDF path (range mode appends -1, -2, …)")
-  .action(async (file: string, opts: { ranges?: string; pages?: string; output: string }) => {
+  .option("-f, --force", "replace output files if they already exist")
+  .action(async (file: string, opts: { ranges?: string; pages?: string; output: string; force?: boolean }) => {
     if (opts.ranges && opts.pages) throw new Error("Use either --ranges or --pages, not both.");
     if (!opts.ranges && !opts.pages) throw new Error("Provide --ranges or --pages.");
     const bytes = await readPdf(file);
     if (opts.pages) {
-      await writePdf(opts.output, await ops.extractPages(bytes, opts.pages));
+      await writePdf(opts.output, await ops.extractPages(bytes, opts.pages), { force: opts.force });
       console.log(`Extracted pages ${opts.pages} → ${opts.output}`);
       return;
     }
     const outs = await ops.splitByRanges(bytes, opts.ranges!);
     if (outs.length === 1) {
-      await writePdf(opts.output, outs[0]);
+      await writePdf(opts.output, outs[0], { force: opts.force });
       console.log(`Wrote 1 file → ${opts.output}`);
       return;
     }
     const paths: string[] = [];
     for (let i = 0; i < outs.length; i++) {
       const p = suffixPath(opts.output, i + 1);
-      await writePdf(p, outs[i]);
+      await writePdf(p, outs[i], { force: opts.force });
       paths.push(p);
     }
     console.log(`Wrote ${outs.length} files:\n  ${paths.join("\n  ")}`);
@@ -106,9 +108,10 @@ program
   .requiredOption("-a, --angle <deg>", "rotation in degrees (multiple of 90)", parseIntArg)
   .option("-p, --pages <spec>", '1-based pages to rotate, e.g. "1,3,5" (default: all)', parsePageList)
   .requiredOption("-o, --output <file>", "output PDF path")
-  .action(async (file: string, opts: { angle: number; pages?: number[]; output: string }) => {
+  .option("-f, --force", "replace the output file if it already exists")
+  .action(async (file: string, opts: { angle: number; pages?: number[]; output: string; force?: boolean }) => {
     const bytes = await readPdf(file);
-    await writePdf(opts.output, await ops.rotate(bytes, opts.angle, opts.pages));
+    await writePdf(opts.output, await ops.rotate(bytes, opts.angle, opts.pages), { force: opts.force });
     console.log(`Rotated ${opts.pages ? `pages ${opts.pages.join(",")}` : "all pages"} by ${opts.angle}° → ${opts.output}`);
   });
 
@@ -122,10 +125,11 @@ program
   .option("--opacity <0-1>", "opacity from 0 to 1", parseFloatArg, 0.15)
   .option("--color <hex>", "color as #RRGGBB", "#808080")
   .option("--position <pos>", `one of: ${WATERMARK_POSITIONS.join(", ")}`, enumArg(WATERMARK_POSITIONS), "center")
+  .option("-f, --force", "replace the output file if it already exists")
   .action(
     async (
       file: string,
-      opts: { text: string; output: string; size: number; opacity: number; color: string; position: (typeof WATERMARK_POSITIONS)[number] },
+      opts: { text: string; output: string; size: number; opacity: number; color: string; position: (typeof WATERMARK_POSITIONS)[number]; force?: boolean },
     ) => {
       const bytes = await readPdf(file);
       const out = await ops.watermark(bytes, opts.text, {
@@ -134,7 +138,7 @@ program
         color: hexToRgb(opts.color),
         position: opts.position,
       });
-      await writePdf(opts.output, out);
+      await writePdf(opts.output, out, { force: opts.force });
       console.log(`Watermarked → ${opts.output}`);
     },
   );
@@ -150,10 +154,11 @@ program
   .option("--position <pos>", `one of: ${BATES_POSITIONS.join(", ")}`, enumArg(BATES_POSITIONS), "bottom-right")
   .option("--size <pt>", "font size in points", parseFloatArg, 10)
   .option("--color <hex>", "color as #RRGGBB", "#000000")
+  .option("-f, --force", "replace the output file if it already exists")
   .action(
     async (
       file: string,
-      opts: { output: string; prefix: string; start: number; pad: number; position: (typeof BATES_POSITIONS)[number]; size: number; color: string },
+      opts: { output: string; prefix: string; start: number; pad: number; position: (typeof BATES_POSITIONS)[number]; size: number; color: string; force?: boolean },
     ) => {
       const bytes = await readPdf(file);
       const out = await ops.bates(bytes, {
@@ -164,7 +169,7 @@ program
         fontSize: opts.size,
         color: opts.color,
       });
-      await writePdf(opts.output, out);
+      await writePdf(opts.output, out, { force: opts.force });
       console.log(`Bates-numbered → ${opts.output}`);
     },
   );
@@ -174,9 +179,10 @@ program
   .description("Strip document metadata: info-dictionary fields, dates, and the XMP stream")
   .argument("<file>", "input PDF")
   .requiredOption("-o, --output <file>", "output PDF path")
-  .action(async (file: string, opts: { output: string }) => {
+  .option("-f, --force", "replace the output file if it already exists")
+  .action(async (file: string, opts: { output: string; force?: boolean }) => {
     const bytes = await readPdf(file);
-    await writePdf(opts.output, await ops.cleanMetadata(bytes));
+    await writePdf(opts.output, await ops.cleanMetadata(bytes), { force: opts.force });
     console.log(`Cleaned metadata → ${opts.output}`);
   });
 
