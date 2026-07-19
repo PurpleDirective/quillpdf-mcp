@@ -1,6 +1,6 @@
 {
   "name": "quillpdf-mcp",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Local-first PDF tools \u2014 merge, split, rotate, watermark, Bates-number, clean metadata, page-count \u2014 as an MCP server and CLI. Your files never leave your machine.",
   "license": "MIT",
   "author": "Purple Directive",
