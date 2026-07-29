@@ -1,6 +1,6 @@
 # quillpdf-mcp
 
-Local-first PDF tools — **merge, split, rotate, watermark, Bates-number, clean metadata, page-count** — exposed as both an **MCP server** (for AI agents) and a **command-line tool**.
+Local-first PDF tools — **merge, split, organize, delete pages, rotate, crop, watermark, Bates-number, page-number, flatten forms, images→PDF, clean metadata, page-count, and AES-256 protect / unlock** — exposed as both an **MCP server** (for AI agents) and a **command-line tool**.
 
 > **Your files never leave your machine.** Every operation reads and writes PDFs locally, in your own environment. The server uses only stdio transport and local filesystem I/O — it never opens a network connection or transmits your documents.
 
@@ -72,6 +72,14 @@ A ready-to-copy config lives in [`examples/mcp-config.json`](examples/mcp-config
 | `pdf_bates` | Sequential Bates numbering (prefix, start, zero-pad, corner) |
 | `pdf_clean_metadata` | Strip info-dict fields + dates, and delete the XMP metadata stream |
 | `pdf_page_count` | Count pages |
+| `pdf_organize` | Keep pages in the order you list — reorder, delete and duplicate in one step |
+| `pdf_delete_pages` | Remove listed pages, keeping the rest in order |
+| `pdf_page_numbers` | Stamp readable page numbers (`3`, `3 of 12`, `Page 3 of 12`), optional unnumbered cover |
+| `pdf_crop` | Trim page margins by setting the CropBox — **hides, does not remove** (not redaction) |
+| `pdf_flatten` | Paint filled form values onto the page so they can't be edited or read back as form data |
+| `pdf_from_images` | Build a PDF from PNG/JPEG images, one per page |
+| `pdf_protect` | Encrypt with **AES-256** so the document needs a password to open |
+| `pdf_unlock` | Remove the password from a document you have the password for |
 
 ---
 
@@ -115,19 +123,25 @@ exists, the command stops with an error instead of clobbering it — add
 ## Privacy & security notes
 
 - **Local only.** All PDF processing happens in-process via [`pdf-lib`](https://github.com/Hopding/pdf-lib). The server communicates over stdio and never opens a network connection. (The MCP SDK bundles optional HTTP/SSE transports in `node_modules`, but this server only ever uses stdio, so none of that code runs.)
-- **Password-protected PDFs are refused, not silently unlocked.** If a file is encrypted, the tool stops with a clear message rather than stripping the password for you.
+- **Password-protected PDFs are refused, not silently unlocked.** Every operation except `unlock` stops with a clear message rather than stripping the password for you. `unlock` decrypts *only* with a password you supply — it does not recover, guess, or brute-force one.
+- **Encryption engine.** `protect` and `unlock` run [QPDF](https://github.com/qpdf/qpdf) (Apache-2.0) compiled to WebAssembly, in-process and offline like everything else. `pdf-lib` cannot encrypt at all, and the community forks that add it are unmaintained — encryption is the one operation where a subtle bug means a document you believe is locked isn't, so this uses the reference implementation instead.
+- **AES-256 only.** `protect` emits PDF 2.0 encryption revision 6. The 40-bit and 128-bit modes are deliberately not exposed: QPDF classes both as weak crypto, and shipping a "protected" file that isn't meaningfully protected is worse than shipping nothing.
+- **Permission flags are a request, not a guarantee.** `--no-print` / `--no-copy` / `--no-modify` set bits that a well-behaved reader honours; they are not enforced by the encryption. The password is the part that actually protects the file. (Extraction *for accessibility* stays permitted even with `--no-copy`, so screen readers keep working.)
+- **Cropping is not redaction.** `crop` sets the CropBox, so trimmed content is hidden but still present in the file and fully recoverable. Do not use it to remove sensitive material.
 - **`clean-metadata` scope.** It clears the title, author, subject, keywords, and creator fields plus the CreationDate/ModDate in the document information dictionary, **and** deletes the document-level XMP metadata stream — the copy Acrobat, Word, InDesign, and LibreOffice write, which is often the authoritative one. Note that `pdf-lib` rewrites the `/Producer` field with its own signature on save, so that one field is *replaced* rather than emptied. It does not scrub page-level annotations, embedded file attachments, or the text/image content of pages.
 
 ## Not here yet (roadmap)
 
-These need a Node image backend or OCR engine and are planned for a later release — they are **not** in this package today:
+These need a Node image backend or an OCR engine and are planned for a later release — they are **not** in this package today:
 
-- `compress` (image re-encode)
-- `pdf-to-image` (render pages to PNG)
-- `redact` (true rasterize-on-redact removal)
-- `ocr` (searchable-text layer)
+- `compress` (image re-encode) — needs an image codec such as `sharp`
+- `pdf-to-image` (render pages to PNG) — needs a rasterizer (`pdfjs-dist` + canvas)
+- `redact` (true rasterize-on-redact removal) — needs the same rasterizer
+- `ocr` (searchable-text layer) — needs `tesseract.js`
 
-They'll ship only when they can run **fully locally**, to keep the privacy guarantee intact.
+Each would roughly quadruple this package's dependency surface, which is the whole reason
+they're held back: the pitch here is a small, local, no-network tool. They'll ship only when
+they can run **fully locally** without giving that up.
 
 ---
 

@@ -6,7 +6,8 @@
  * network calls, ever. See core.ts for the engine.
  */
 import { Command, InvalidArgumentError } from "commander";
-import { readPdf, writePdf } from "./io.js";
+import { readPdf, readImage, writePdf } from "./io.js";
+import * as qpdf from "./qpdf.js";
 import * as ops from "./core.js";
 import { hexToRgb } from "./core.js";
 import { suffixPath } from "./paths.js";
@@ -193,6 +194,149 @@ program
   .action(async (file: string) => {
     const bytes = await readPdf(file);
     console.log(String(await ops.pageCount(bytes)));
+  });
+
+
+const NUMBER_POSITIONS = ["bottom-center", "bottom-right", "bottom-left", "top-center", "top-right", "top-left"] as const;
+const NUMBER_FORMATS = ["plain", "of-total", "page-of-total"] as const;
+const IMAGE_PAGE_SIZES = ["a4", "letter", "fit"] as const;
+
+program
+  .command("organize")
+  .description("Keep only the listed pages, in the order given (reorder, delete and duplicate in one step)")
+  .argument("<file>", "input PDF")
+  .requiredOption("-p, --pages <spec>", 'pages to KEEP in the order wanted, 1-based, e.g. "3,1,5-8"')
+  .requiredOption("-o, --output <path>", "output PDF")
+  .option("-f, --force", "replace the output file if it exists")
+  .action(async (file: string, opts: { pages: string; output: string; force?: boolean }) => {
+    const bytes = await readPdf(file);
+    const order = ops.parseRanges(opts.pages, await ops.pageCount(bytes)).flat();
+    await writePdf(opts.output, await ops.organize(bytes, order), { force: opts.force });
+    console.log(`Kept ${order.length} page(s) → ${opts.output}`);
+  });
+
+program
+  .command("delete-pages")
+  .description("Remove the listed pages, keeping the rest in order")
+  .argument("<file>", "input PDF")
+  .requiredOption("-p, --pages <spec>", 'pages to DELETE, 1-based, e.g. "2,5-7"')
+  .requiredOption("-o, --output <path>", "output PDF")
+  .option("-f, --force", "replace the output file if it exists")
+  .action(async (file: string, opts: { pages: string; output: string; force?: boolean }) => {
+    const bytes = await readPdf(file);
+    const total = await ops.pageCount(bytes);
+    const remove = ops.parseRanges(opts.pages, total).flat();
+    await writePdf(opts.output, await ops.deletePages(bytes, remove), { force: opts.force });
+    console.log(`Deleted ${remove.length} page(s), ${total - remove.length} remain → ${opts.output}`);
+  });
+
+program
+  .command("page-numbers")
+  .description("Stamp readable page numbers (a reading aid — see `bates` for legal numbering)")
+  .argument("<file>", "input PDF")
+  .requiredOption("-o, --output <path>", "output PDF")
+  .option("--format <fmt>", `one of: ${NUMBER_FORMATS.join(", ")}`, enumArg(NUMBER_FORMATS), "plain")
+  .option("--position <pos>", `one of: ${NUMBER_POSITIONS.join(", ")}`, enumArg(NUMBER_POSITIONS), "bottom-center")
+  .option("--start <n>", "number for the first page", parseIntArg, 1)
+  .option("--skip-first", "leave page 1 unstamped (later pages keep their true position)")
+  .option("--size <pt>", "font size in points", parseFloatArg, 10)
+  .option("--color <hex>", "text colour #RRGGBB", "#000000")
+  .option("-f, --force", "replace the output file if it exists")
+  .action(async (file: string, opts: {
+    output: string; format: typeof NUMBER_FORMATS[number]; position: typeof NUMBER_POSITIONS[number];
+    start: number; skipFirst?: boolean; size: number; color: string; force?: boolean;
+  }) => {
+    const bytes = await readPdf(file);
+    const out = await ops.pageNumbers(bytes, {
+      format: opts.format, position: opts.position, startNumber: opts.start,
+      fontSize: opts.size, color: opts.color, skipPages: opts.skipFirst ? [0] : [],
+    });
+    await writePdf(opts.output, out, { force: opts.force });
+    console.log(`Numbered → ${opts.output}`);
+  });
+
+program
+  .command("crop")
+  .description("Trim page margins, in points (72 = 1in). Hides content — this is NOT redaction")
+  .argument("<file>", "input PDF")
+  .requiredOption("-o, --output <path>", "output PDF")
+  .option("--top <pt>", "points to trim from the top", parseFloatArg, 0)
+  .option("--right <pt>", "points to trim from the right", parseFloatArg, 0)
+  .option("--bottom <pt>", "points to trim from the bottom", parseFloatArg, 0)
+  .option("--left <pt>", "points to trim from the left", parseFloatArg, 0)
+  .option("-f, --force", "replace the output file if it exists")
+  .action(async (file: string, opts: {
+    output: string; top: number; right: number; bottom: number; left: number; force?: boolean;
+  }) => {
+    const bytes = await readPdf(file);
+    const out = await ops.crop(bytes, { top: opts.top, right: opts.right, bottom: opts.bottom, left: opts.left });
+    await writePdf(opts.output, out, { force: opts.force });
+    console.log(`Cropped → ${opts.output}`);
+  });
+
+program
+  .command("flatten")
+  .description("Paint filled form values onto the page so they can no longer be edited")
+  .argument("<file>", "input PDF")
+  .requiredOption("-o, --output <path>", "output PDF")
+  .option("-f, --force", "replace the output file if it exists")
+  .action(async (file: string, opts: { output: string; force?: boolean }) => {
+    const bytes = await readPdf(file);
+    await writePdf(opts.output, await ops.flatten(bytes), { force: opts.force });
+    console.log(`Flattened → ${opts.output}`);
+  });
+
+program
+  .command("from-images")
+  .description("Build a PDF from PNG/JPEG images, one per page")
+  .argument("<images...>", "input images, in page order")
+  .requiredOption("-o, --output <path>", "output PDF")
+  .option("--page-size <size>", `one of: ${IMAGE_PAGE_SIZES.join(", ")}`, enumArg(IMAGE_PAGE_SIZES), "a4")
+  .option("-f, --force", "replace the output file if it exists")
+  .action(async (images: string[], opts: {
+    output: string; pageSize: typeof IMAGE_PAGE_SIZES[number]; force?: boolean;
+  }) => {
+    const bufs = await Promise.all(images.map(readImage));
+    await writePdf(opts.output, await ops.imagesToPdf(bufs, opts.pageSize), { force: opts.force });
+    console.log(`Built a ${images.length}-page PDF → ${opts.output}`);
+  });
+
+program
+  .command("protect")
+  .description("Encrypt a PDF with AES-256 so it needs a password to open")
+  .argument("<file>", "input PDF")
+  .requiredOption("-o, --output <path>", "output PDF")
+  .requiredOption("--password <pw>", "password required to open the document")
+  .option("--no-print", "disallow printing")
+  .option("--no-copy", "disallow text/graphic extraction")
+  .option("--no-modify", "disallow editing and form filling")
+  .option("-f, --force", "replace the output file if it exists")
+  .action(async (file: string, opts: {
+    output: string; password: string; print: boolean; copy: boolean; modify: boolean; force?: boolean;
+  }) => {
+    const bytes = await readPdf(file);
+    // commander maps --no-x to x:false, so the flags arrive inverted.
+    const out = await qpdf.protect(bytes, {
+      userPassword: opts.password,
+      noPrint: opts.print === false,
+      noCopy: opts.copy === false,
+      noModify: opts.modify === false,
+    });
+    await writePdf(opts.output, out, { force: opts.force });
+    console.log(`Protected with AES-256 → ${opts.output}`);
+  });
+
+program
+  .command("unlock")
+  .description("Remove the password from a PDF you know the password for (cannot recover a lost one)")
+  .argument("<file>", "input PDF")
+  .requiredOption("-o, --output <path>", "output PDF")
+  .requiredOption("--password <pw>", "the document's current password")
+  .option("-f, --force", "replace the output file if it exists")
+  .action(async (file: string, opts: { output: string; password: string; force?: boolean }) => {
+    const bytes = await readPdf(file);
+    await writePdf(opts.output, await qpdf.unlock(bytes, opts.password), { force: opts.force });
+    console.log(`Password removed → ${opts.output}`);
   });
 
 program.parseAsync(process.argv).catch((err: unknown) => {

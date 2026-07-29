@@ -48,3 +48,42 @@ export async function writePdf(
     throw err;
   }
 }
+
+/**
+ * Read an image (PNG or JPEG) from disk.
+ *
+ * Separate from readPdf because that one asserts a %PDF header. Format is
+ * validated from the magic bytes rather than the extension, so a mislabelled
+ * .png that is really a JPEG still works — and a .png that is really a PDF is
+ * caught here rather than deep inside pdf-lib.
+ */
+export async function readImage(path: string): Promise<Uint8Array> {
+  let buf: Buffer;
+  try {
+    buf = await readFile(path);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new Error(`file not found: ${path}`);
+    }
+    throw err;
+  }
+  const isPng =
+    buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47;
+  const isJpg = buf[0] === 0xff && buf[1] === 0xd8;
+  if (!isPng && !isJpg) {
+    throw new Error(`"${path}" is not a PNG or JPEG image.`);
+  }
+  return new Uint8Array(buf);
+}
+
+/**
+ * Write arbitrary bytes, with the same no-clobber contract as writePdf.
+ * Used where the output isn't necessarily a PDF.
+ */
+export async function writeBinary(
+  path: string,
+  bytes: Uint8Array,
+  opts?: { force?: boolean },
+): Promise<void> {
+  return writePdf(path, bytes, opts);
+}

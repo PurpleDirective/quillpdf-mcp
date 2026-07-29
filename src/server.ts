@@ -13,7 +13,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { readPdf, writePdf } from "./io.js";
+import { readPdf, readImage, writePdf } from "./io.js";
+import * as qpdf from "./qpdf.js";
 import * as ops from "./core.js";
 import { hexToRgb } from "./core.js";
 import { suffixPath } from "./paths.js";
@@ -249,6 +250,242 @@ server.registerTool(
   },
 );
 
+
+server.registerTool(
+  "pdf_organize",
+  {
+    title: "Organize PDF pages",
+    description:
+      "Rebuild a PDF keeping only the pages you list, in the order you list them. " +
+      "Reordering, deleting and duplicating are all the same operation: a page you " +
+      "omit is dropped, a page you move is reordered, and a page listed twice is " +
+      "duplicated." + LOCAL,
+    inputSchema: {
+      input: z.string().describe("Path to the input PDF"),
+      pages: z
+        .string()
+        .describe('Pages to KEEP, in the order wanted, 1-based. e.g. "3,1,5-8". Order matters; repeat a number to duplicate that page.'),
+      output: z.string().describe("Path to write the organized PDF"),
+      force: z.boolean().optional().describe("Replace the output file if it already exists"),
+    },
+    annotations: { title: "Organize PDF pages", readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  async ({ input, pages, output, force }) => {
+    try {
+      const bytes = await readPdf(input);
+      const total = await ops.pageCount(bytes);
+      const order = ops.parseRanges(pages, total).flat();
+      await writePdf(output, await ops.organize(bytes, order), { force });
+      return ok(`Kept ${order.length} page(s) → ${output}`);
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  "pdf_delete_pages",
+  {
+    title: "Delete PDF pages",
+    description:
+      "Remove the listed pages, keeping everything else in its current order." + LOCAL,
+    inputSchema: {
+      input: z.string().describe("Path to the input PDF"),
+      pages: z.string().describe('Pages to DELETE, 1-based. e.g. "2,5-7"'),
+      output: z.string().describe("Path to write the result"),
+      force: z.boolean().optional().describe("Replace the output file if it already exists"),
+    },
+    annotations: { title: "Delete PDF pages", readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  async ({ input, pages, output, force }) => {
+    try {
+      const bytes = await readPdf(input);
+      const total = await ops.pageCount(bytes);
+      const remove = ops.parseRanges(pages, total).flat();
+      await writePdf(output, await ops.deletePages(bytes, remove), { force });
+      return ok(`Deleted ${remove.length} page(s), ${total - remove.length} remain → ${output}`);
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  "pdf_page_numbers",
+  {
+    title: "Add page numbers",
+    description:
+      "Stamp readable page numbers on each page. Distinct from Bates numbering: " +
+      "these are a reading aid (centred, optional \"of N\" total, skippable cover), " +
+      "not a legal evidence-control device." + LOCAL,
+    inputSchema: {
+      input: z.string().describe("Path to the input PDF"),
+      output: z.string().describe("Path to write the numbered PDF"),
+      format: z.enum(["plain", "of-total", "page-of-total"]).optional().describe('"3" | "3 of 12" | "Page 3 of 12" (default: plain)'),
+      position: z
+        .enum(["bottom-center", "bottom-right", "bottom-left", "top-center", "top-right", "top-left"])
+        .optional()
+        .describe("Where to place the number (default: bottom-center)"),
+      startNumber: z.number().int().optional().describe("Number for the first page (default: 1)"),
+      skipFirst: z.boolean().optional().describe("Leave page 1 unstamped, e.g. a cover. Later pages keep their true position (page 2 still reads \"2 of 12\")."),
+      fontSize: z.number().optional().describe("Point size (default: 10)"),
+      color: z.string().optional().describe("Hex colour #RRGGBB (default: #000000)"),
+      force: z.boolean().optional().describe("Replace the output file if it already exists"),
+    },
+    annotations: { title: "Add page numbers", readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  async ({ input, output, format, position, startNumber, skipFirst, fontSize, color, force }) => {
+    try {
+      const bytes = await readPdf(input);
+      const out = await ops.pageNumbers(bytes, {
+        format, position, startNumber, fontSize, color,
+        skipPages: skipFirst ? [0] : [],
+      });
+      await writePdf(output, out, { force });
+      return ok(`Numbered → ${output}`);
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  "pdf_crop",
+  {
+    title: "Crop PDF margins",
+    description:
+      "Trim the visible area of each page by the given margins, in points (72 = 1 inch). " +
+      "This sets the CropBox, so the trimmed content is HIDDEN, not removed — it stays in " +
+      "the file and anyone can restore it. Cropping is not redaction." + LOCAL,
+    inputSchema: {
+      input: z.string().describe("Path to the input PDF"),
+      output: z.string().describe("Path to write the cropped PDF"),
+      top: z.number().optional().describe("Points to trim from the top (default: 0)"),
+      right: z.number().optional().describe("Points to trim from the right (default: 0)"),
+      bottom: z.number().optional().describe("Points to trim from the bottom (default: 0)"),
+      left: z.number().optional().describe("Points to trim from the left (default: 0)"),
+      force: z.boolean().optional().describe("Replace the output file if it already exists"),
+    },
+    annotations: { title: "Crop PDF margins", readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  async ({ input, output, top, right, bottom, left, force }) => {
+    try {
+      const bytes = await readPdf(input);
+      await writePdf(output, await ops.crop(bytes, { top, right, bottom, left }), { force });
+      return ok(`Cropped → ${output}`);
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  "pdf_flatten",
+  {
+    title: "Flatten PDF form",
+    description:
+      "Paint filled form values onto the page as static content. Afterwards the answers " +
+      "are still readable but can no longer be edited, cleared, or extracted as form data." + LOCAL,
+    inputSchema: {
+      input: z.string().describe("Path to the input PDF"),
+      output: z.string().describe("Path to write the flattened PDF"),
+      force: z.boolean().optional().describe("Replace the output file if it already exists"),
+    },
+    annotations: { title: "Flatten PDF form", readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  async ({ input, output, force }) => {
+    try {
+      await writePdf(output, await ops.flatten(await readPdf(input)), { force });
+      return ok(`Flattened → ${output}`);
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  "pdf_from_images",
+  {
+    title: "Images to PDF",
+    description:
+      "Build a PDF from PNG and/or JPEG images, one image per page, in the order given." + LOCAL,
+    inputSchema: {
+      inputs: z.array(z.string()).min(1).describe("Paths to the images, in page order"),
+      output: z.string().describe("Path to write the PDF"),
+      pageSize: z.enum(["a4", "letter", "fit"]).optional().describe('"fit" sizes each page to its image; a4/letter centres it on a fixed page (default: a4)'),
+      force: z.boolean().optional().describe("Replace the output file if it already exists"),
+    },
+    annotations: { title: "Images to PDF", readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  async ({ inputs, output, pageSize, force }) => {
+    try {
+      const imgs = await Promise.all(inputs.map(readImage));
+      await writePdf(output, await ops.imagesToPdf(imgs, pageSize), { force });
+      return ok(`Built a ${inputs.length}-page PDF → ${output}`);
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  "pdf_protect",
+  {
+    title: "Password-protect a PDF",
+    description:
+      "Encrypt a PDF with AES-256 so it cannot be opened without the password. " +
+      "Only AES-256 is offered — 40-bit and 128-bit are classed as weak crypto. " +
+      "The password is used locally and never transmitted; it also cannot be " +
+      "recovered, so it must be stored somewhere safe." + LOCAL,
+    inputSchema: {
+      input: z.string().describe("Path to the input PDF"),
+      output: z.string().describe("Path to write the protected PDF"),
+      password: z.string().min(1).describe("Password required to open the document"),
+      noPrint: z.boolean().optional().describe("Disallow printing (enforced by the reader, not the encryption)"),
+      noCopy: z.boolean().optional().describe("Disallow text/graphic extraction (accessibility extraction stays permitted)"),
+      noModify: z.boolean().optional().describe("Disallow editing and form filling"),
+      force: z.boolean().optional().describe("Replace the output file if it already exists"),
+    },
+    annotations: { title: "Password-protect a PDF", readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  async ({ input, output, password, noPrint, noCopy, noModify, force }) => {
+    try {
+      const bytes = await readPdf(input);
+      const out = await qpdf.protect(bytes, { userPassword: password, noPrint, noCopy, noModify });
+      await writePdf(output, out, { force });
+      return ok(`Protected with AES-256 → ${output}`);
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
+server.registerTool(
+  "pdf_unlock",
+  {
+    title: "Remove a PDF password",
+    description:
+      "Decrypt a password-protected PDF you know the password for, so it opens without " +
+      "prompting. This does NOT recover, guess, or brute-force a forgotten password." + LOCAL,
+    inputSchema: {
+      input: z.string().describe("Path to the protected PDF"),
+      output: z.string().describe("Path to write the unlocked PDF"),
+      password: z.string().describe("The document's current password"),
+      force: z.boolean().optional().describe("Replace the output file if it already exists"),
+    },
+    annotations: { title: "Remove a PDF password", readOnlyHint: false, destructiveHint: false, idempotentHint: false },
+  },
+  async ({ input, output, password, force }) => {
+    try {
+      const bytes = await readPdf(input);
+      await writePdf(output, await qpdf.unlock(bytes, password), { force });
+      return ok(`Password removed → ${output}`);
+    } catch (e) {
+      return fail(e);
+    }
+  },
+);
+
 const HELP_TEXT = `quillpdf-mcp v${VERSION} — local-first PDF tools over the Model Context Protocol.
 
 This is an MCP server: it speaks JSON-RPC over stdio and is meant to be launched
@@ -258,7 +495,9 @@ Add it to your client config:
   { "mcpServers": { "quillpdf": { "command": "npx", "args": ["-y", "quillpdf-mcp"] } } }
 
 Tools: pdf_merge, pdf_split, pdf_rotate, pdf_watermark, pdf_bates,
-       pdf_clean_metadata, pdf_page_count
+       pdf_clean_metadata, pdf_page_count, pdf_organize, pdf_delete_pages,
+       pdf_page_numbers, pdf_crop, pdf_flatten, pdf_from_images, pdf_protect,
+       pdf_unlock
 
 For the command-line tool instead, run:  quillpdf --help
 Docs: https://quillpdf.com

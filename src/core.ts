@@ -299,3 +299,223 @@ export async function cleanMetadata(bytes: Uint8Array): Promise<Uint8Array> {
 
   return src.save();
 }
+
+// ── Organize (reorder / delete pages) ─────────────────────────────────────────
+
+/**
+ * Rebuild a PDF with its pages in `order`, a list of 0-based indices.
+ *
+ * Deletion and reordering are the same operation: a page missing from `order` is
+ * deleted, a page in a different position is moved, and a repeated index
+ * duplicates that page (useful for a cover sheet repeated per section).
+ */
+export async function organize(bytes: Uint8Array, order: number[]): Promise<Uint8Array> {
+  const src = await loadPdfSafe(bytes);
+  const total = src.getPageCount();
+  if (order.length === 0) throw new Error("Keep at least one page");
+  const bad = order.find((i) => !Number.isInteger(i) || i < 0 || i >= total);
+  if (bad !== undefined) throw new Error(`Page ${bad + 1} does not exist in this document`);
+
+  const doc = await PDFDocument.create();
+  const pages = await doc.copyPages(src, order);
+  pages.forEach((p) => doc.addPage(p));
+  return doc.save();
+}
+
+/** Delete the given 0-based pages, keeping the rest in their current order. */
+export async function deletePages(bytes: Uint8Array, remove: number[]): Promise<Uint8Array> {
+  const total = await pageCount(bytes);
+  const drop = new Set(remove);
+  const keep = Array.from({ length: total }, (_, i) => i).filter((i) => !drop.has(i));
+  if (keep.length === 0) throw new Error("That would delete every page — keep at least one");
+  return organize(bytes, keep);
+}
+
+// ── Page numbers ──────────────────────────────────────────────────────────────
+
+export type PageNumberFormat = "plain" | "of-total" | "page-of-total";
+
+export interface PageNumberOptions {
+  format?: PageNumberFormat;
+  startNumber?: number;
+  /** 0-based pages to leave unstamped. Typically [0] to skip a cover. */
+  skipPages?: number[];
+  position?: "bottom-center" | "bottom-right" | "bottom-left" | "top-center" | "top-right" | "top-left";
+  fontSize?: number;
+  color?: string;
+  margin?: number;
+}
+
+/**
+ * Stamp readable page numbers ("3", "3 of 12", "Page 3 of 12").
+ *
+ * Distinct from {@link bates} despite the overlap: Bates numbers are a legal
+ * evidence-control device — fixed-width, prefixed, never skipped, unique across a
+ * production set. Page numbers are a reading aid, and readers expect centred
+ * placement, "of N" totals, and an unnumbered cover. Merging them would make
+ * both worse.
+ *
+ * Skipped pages still COUNT: skipping the cover of a 12-page document stamps
+ * "2 of 12" on the second sheet, matching how a printed document numbers.
+ */
+export async function pageNumbers(
+  bytes: Uint8Array,
+  options: PageNumberOptions = {},
+): Promise<Uint8Array> {
+  const {
+    format = "plain",
+    startNumber = 1,
+    skipPages = [],
+    position = "bottom-center",
+    fontSize = 10,
+    color = "#000000",
+    margin = 40,
+  } = options;
+
+  const { r, g, b } = hexToRgb(color);
+  const src = await loadPdfSafe(bytes);
+  const font = await src.embedFont(StandardFonts.Helvetica);
+  const pages = src.getPages();
+  const skip = new Set(skipPages);
+  const total = pages.length + startNumber - 1;
+
+  for (let i = 0; i < pages.length; i++) {
+    if (skip.has(i)) continue;
+    const page = pages[i];
+    const { width, height } = page.getSize();
+    const n = startNumber + i;
+    const label =
+      format === "page-of-total" ? `Page ${n} of ${total}`
+      : format === "of-total" ? `${n} of ${total}`
+      : `${n}`;
+    const tw = font.widthOfTextAtSize(label, fontSize);
+    const y = position.startsWith("top") ? height - margin - fontSize : margin;
+    const x =
+      position.endsWith("left") ? margin
+      : position.endsWith("right") ? width - tw - margin
+      : (width - tw) / 2;
+    page.drawText(label, { x, y, size: fontSize, font, color: rgb(r, g, b) });
+  }
+  return src.save();
+}
+
+// ── Crop ──────────────────────────────────────────────────────────────────────
+
+export interface CropMargins {
+  top?: number;
+  right?: number;
+  bottom?: number;
+  left?: number;
+}
+
+/**
+ * Trim the visible area of each page by the given margins, in points (72 = 1in).
+ *
+ * Sets the CropBox — the region a viewer displays — rather than destroying
+ * content. Two consequences worth being explicit about, because they point in
+ * opposite directions:
+ *   - Nothing is lost; a crop is reversible by resetting the box.
+ *   - Nothing is REMOVED. Cropping is not redaction. The hidden area is fully
+ *     recoverable by anyone. For content that must actually be gone, redaction
+ *     is required (not yet available here — see the phase-2 note at the top).
+ *
+ * Margins apply in unrotated page space, so on a page carrying /Rotate the "top"
+ * margin follows the underlying geometry rather than the on-screen top.
+ */
+export async function crop(
+  bytes: Uint8Array,
+  margins: CropMargins,
+  pages?: number[],
+): Promise<Uint8Array> {
+  const { top = 0, right = 0, bottom = 0, left = 0 } = margins;
+  if ([top, right, bottom, left].some((m) => m < 0)) {
+    throw new Error("Crop margins cannot be negative");
+  }
+  if (top === 0 && right === 0 && bottom === 0 && left === 0) {
+    throw new Error("Set at least one margin to crop");
+  }
+
+  const src = await loadPdfSafe(bytes);
+  const all = src.getPages();
+  const targets = pages ?? all.map((_, i) => i);
+
+  for (const i of targets) {
+    const page = all[i];
+    if (!page) continue;
+    // Crop relative to the CURRENT box so repeated crops compose, rather than
+    // each one measuring afresh from the media edge.
+    const box = page.getCropBox();
+    const w = box.width - left - right;
+    const h = box.height - top - bottom;
+    if (w <= 0 || h <= 0) throw new Error(`Those margins would crop page ${i + 1} to nothing`);
+    page.setCropBox(box.x + left, box.y + bottom, w, h);
+  }
+  return src.save();
+}
+
+// ── Flatten ───────────────────────────────────────────────────────────────────
+
+/**
+ * Flatten interactive form fields into static page content.
+ *
+ * Filled values are painted onto the page and can no longer be edited, cleared,
+ * or read back as form data — normally what you want before sending a completed
+ * form on. Throws when there is no form, so a caller can say "nothing to
+ * flatten" rather than hand back a re-saved file that looks processed but isn't.
+ */
+export async function flatten(bytes: Uint8Array): Promise<Uint8Array> {
+  const src = await loadPdfSafe(bytes);
+  const form = src.getForm();
+  if (form.getFields().length === 0) {
+    throw new Error("This PDF has no form fields to flatten");
+  }
+  form.flatten();
+  return src.save();
+}
+
+// ── Images → PDF ──────────────────────────────────────────────────────────────
+
+export type ImagePageSize = "a4" | "letter" | "fit";
+
+const PAGE_DIMS: Record<"a4" | "letter", [number, number]> = {
+  a4: [595.28, 841.89],
+  letter: [612, 792],
+};
+
+/**
+ * Build a PDF from JPEG and/or PNG images, one image per page.
+ *
+ * Format is detected from the bytes rather than a filename, so this works on a
+ * stream and cannot be fooled by a wrong extension. "fit" sizes each page to its
+ * image; a4/letter letterboxes the image inside a fixed page, preserving aspect.
+ */
+export async function imagesToPdf(
+  images: Uint8Array[],
+  pageSize: ImagePageSize = "a4",
+): Promise<Uint8Array> {
+  if (images.length === 0) throw new Error("Add at least one image");
+  const doc = await PDFDocument.create();
+
+  for (const [i, bytes] of images.entries()) {
+    const isPng = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47;
+    const isJpg = bytes[0] === 0xff && bytes[1] === 0xd8;
+    if (!isPng && !isJpg) {
+      throw new Error(`Image ${i + 1} is not a PNG or JPEG (checked the file's own bytes)`);
+    }
+    const img = isPng ? await doc.embedPng(bytes) : await doc.embedJpg(bytes);
+
+    if (pageSize === "fit") {
+      const page = doc.addPage([img.width, img.height]);
+      page.drawImage(img, { x: 0, y: 0, width: img.width, height: img.height });
+      continue;
+    }
+
+    const [pw, ph] = PAGE_DIMS[pageSize];
+    const page = doc.addPage([pw, ph]);
+    const scale = Math.min(pw / img.width, ph / img.height);
+    const w = img.width * scale;
+    const h = img.height * scale;
+    page.drawImage(img, { x: (pw - w) / 2, y: (ph - h) / 2, width: w, height: h });
+  }
+  return doc.save();
+}
