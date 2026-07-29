@@ -12,6 +12,7 @@
   "bugs": {
     "url": "https://github.com/PurpleDirective/quillpdf-mcp/issues"
   },
+  "funding": "https://quillpdf.com/support",
   "type": "module",
   "bin": {
     "quillpdf": "dist/cli.js",
