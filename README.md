@@ -1,36 +1,35 @@
 # quillpdf-mcp
 
-Local-first PDF tools — **merge, split, organize, delete pages, rotate, crop, watermark, Bates-number, page-number, flatten forms, images→PDF, clean metadata, page-count, and AES-256 protect / unlock** — exposed as both an **MCP server** (for AI agents) and a **command-line tool**.
+PDF operations for MCP. An MCP server and CLI for local PDF manipulation:
 
-> **Your files never leave your machine.** Every operation reads and writes PDFs locally, in your own environment. The server uses only stdio transport and local filesystem I/O — it never opens a network connection or transmits your documents.
+- Merge, split, organize, delete pages
+- Rotate, crop
+- Watermark, Bates numbering, page numbers
+- Flatten forms, images → PDF
+- Metadata cleaning, page count
+- AES-256 protect / unlock
 
-Built by [Purple Directive](https://quillpdf.com), the same privacy-first engine behind [QuillPDF](https://quillpdf.com). MIT licensed.
-
----
-
-## Why
-
-Most "PDF API" tools make you upload your documents to someone else's server. For sensitive files — legal discovery, medical records, financials — that's a non-starter. `quillpdf-mcp` runs the PDF operations *where you are*: as a local CLI, or as a [Model Context Protocol](https://modelcontextprotocol.io) server an AI assistant can call. The bytes stay on your disk.
+Built on [pdf-lib](https://github.com/Hopding/pdf-lib). MIT licensed. stdio transport. No network calls — files never leave your machine.
 
 ## Install
 
-Run on demand with `npx` (no install):
-
 ```bash
-npx -p quillpdf-mcp quillpdf --help   # the CLI
-npx quillpdf-mcp --help               # MCP server: prints setup help (your MCP client launches it over stdio)
+npx -p quillpdf-mcp quillpdf --help   # CLI
+npx quillpdf-mcp --help               # MCP server (your MCP client launches it over stdio)
 ```
 
-Or install globally for the `quillpdf` and `quillpdf-mcp` commands:
+Or globally:
 
 ```bash
 npm install -g quillpdf-mcp
 quillpdf --help
 ```
 
-Requires Node.js 18 or newer.
+Requires Node.js 18+.
 
----
+## Scope
+
+`quillpdf-mcp` implements structural PDF transforms and AES-256 protect/unlock. It does not perform OCR, redaction, or compression — those are available in the browser version ([quillpdf.com](https://quillpdf.com)), where processing also stays client-side. They'll ship here only when they can run fully locally.
 
 ## Use it from an AI assistant (MCP)
 
@@ -81,8 +80,6 @@ A ready-to-copy config lives in [`examples/mcp-config.json`](examples/mcp-config
 | `pdf_protect` | Encrypt with **AES-256** so the document needs a password to open |
 | `pdf_unlock` | Remove the password from a document you have the password for |
 
----
-
 ## Use it from the command line
 
 ```bash
@@ -118,8 +115,6 @@ Every command has `--help`.
 exists, the command stops with an error instead of clobbering it — add
 `--force` (or `force: true` on the MCP tools) to replace it deliberately.
 
----
-
 ## Privacy & security notes
 
 - **Local only.** All PDF processing happens in-process via [`pdf-lib`](https://github.com/Hopding/pdf-lib). The server communicates over stdio and never opens a network connection. (The MCP SDK bundles optional HTTP/SSE transports in `node_modules`, but this server only ever uses stdio, so none of that code runs.)
@@ -143,7 +138,9 @@ Each would roughly quadruple this package's dependency surface, which is the who
 they're held back: the pitch here is a small, local, no-network tool. They'll ship only when
 they can run **fully locally** without giving that up.
 
----
+## Philosophy
+
+Keep the server small, local, and easy to audit. Most "PDF API" tools answer document work with "upload it to us" — for legal discovery, medical records, or financials, the upload is the problem. This runs where you are; the bytes stay on your disk.
 
 ## Development
 
@@ -157,6 +154,6 @@ The engine (`src/core.ts`) is pure: bytes in, bytes out, no I/O. The CLI (`src/c
 
 ## License
 
-MIT © Purple Directive. See [LICENSE](LICENSE).
+MIT © [Purple Directive](https://purpledirective.com). See [LICENSE](LICENSE).
 
 Learn more at [quillpdf.com](https://quillpdf.com).
