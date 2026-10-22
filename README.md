@@ -31,13 +31,9 @@ Requires Node.js 18+.
 
 `quillpdf-mcp` implements structural PDF transforms and AES-256 protect/unlock. It does not perform OCR, redaction, or compression — those are available in the browser version ([quillpdf.com](https://quillpdf.com)), where processing also stays client-side. They'll ship here only when they can run fully locally.
 
-## Use it from an AI assistant (MCP)
+## Use it from an MCP client
 
-The MCP server speaks stdio and exposes one tool per operation.
-
-### Claude Desktop
-
-Add to `claude_desktop_config.json`:
+`quillpdf-mcp` works with any MCP client. It is a stdio server, so every client needs the same thing: a command to launch. Add this server entry to your client's MCP configuration:
 
 ```json
 {
@@ -50,11 +46,20 @@ Add to `claude_desktop_config.json`:
 }
 ```
 
-### Claude Code
+### Client examples
 
-```bash
-claude mcp add quillpdf -- npx -y quillpdf-mcp
-```
+Where that entry goes (check your client's documentation for the current location):
+
+- **Claude Desktop** — `claude_desktop_config.json` (Settings > Developer > Edit Config). On macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`; on Windows: `%APPDATA%\Claude\claude_desktop_config.json`. Same `mcpServers` block as above. ([docs](https://modelcontextprotocol.io/quickstart/user))
+- **Claude Code** — `claude mcp add quillpdf -- npx -y quillpdf-mcp`, or put the block in a project-root `.mcp.json`. ([docs](https://code.claude.com/docs/en/mcp))
+- **Cursor** — `.cursor/mcp.json` in a project, or `~/.cursor/mcp.json` for all projects. Same `mcpServers` block. ([docs](https://cursor.com/docs/context/mcp))
+- **VS Code** — `.vscode/mcp.json` in a workspace, or run **MCP: Open User Configuration** for your profile. VS Code uses a `servers` key instead of `mcpServers`, and takes `"type": "stdio"`:
+
+  ```json
+  { "servers": { "quillpdf": { "type": "stdio", "command": "npx", "args": ["-y", "quillpdf-mcp"] } } }
+  ```
+
+  ([docs](https://code.visualstudio.com/docs/agents/reference/mcp-configuration))
 
 Then ask your assistant things like *"merge invoice-1.pdf and invoice-2.pdf into combined.pdf"* or *"Bates-number discovery.pdf with prefix ABC starting at 1."* The assistant supplies file paths on your machine; the server reads and writes them locally.
 

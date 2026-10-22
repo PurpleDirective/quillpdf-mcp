@@ -2,8 +2,8 @@
 /**
  * quillpdf-mcp — Model Context Protocol server (stdio transport).
  *
- * Exposes the quillpdf operations as MCP tools so any MCP client (Claude Code,
- * Claude Desktop, etc.) can drive local PDF editing. Tools read input paths and
+ * Exposes the quillpdf operations as MCP tools so any MCP client
+ * can drive local PDF editing. Tools read input paths and
  * write output paths on the SAME machine the server runs on — exactly like the
  * CLI. There is no network path; your files never leave your computer.
  *
@@ -489,7 +489,7 @@ server.registerTool(
 const HELP_TEXT = `quillpdf-mcp v${VERSION} — local-first PDF tools over the Model Context Protocol.
 
 This is an MCP server: it speaks JSON-RPC over stdio and is meant to be launched
-by an MCP client (Claude Desktop, Claude Code, …), not run directly in a shell.
+by an MCP client, not run directly in a shell.
 Add it to your client config:
 
   { "mcpServers": { "quillpdf": { "command": "npx", "args": ["-y", "quillpdf-mcp"] } } }
